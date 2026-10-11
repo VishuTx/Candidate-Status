@@ -5,6 +5,7 @@ Run:  uvicorn app.main:app --port 8000
 Env:  MONGO_URI, MONGO_DB (read from environment, local .env is fallback)
 """
 import calendar
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, date, time, timedelta, timezone
@@ -12,16 +13,27 @@ from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from typing import Annotated, Any, Dict, List, Optional
 
+from bson import json_util
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Path, status
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 from pymongo import MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+try:
+    import dns.resolver
+
+    _res = dns.resolver.get_default_resolver()
+    for _fallback in ["8.8.8.8", "1.1.1.1"]:
+        if _fallback not in _res.nameservers:
+            _res.nameservers.append(_fallback)
+except Exception:
+    pass
+
 # Real environment variables take priority over .env
 load_dotenv(override=False)
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017"
 MONGO_DB = os.getenv("MONGO_DB", "attendance_db")
 
 client = MongoClient(MONGO_URI, tz_aware=True)
@@ -1196,15 +1208,7 @@ def department_trend(
 
 
 def clean_mongo_doc(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {k: clean_mongo_doc(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [clean_mongo_doc(v) for v in obj]
-    elif isinstance(obj, datetime):
-        return obj.isoformat()
-    elif hasattr(obj, "__int__") and not isinstance(obj, (bool, float)):
-        return int(obj)
-    return obj
+    return json.loads(json_util.dumps(obj))
 
 
 @app.get("/admin/explain/{endpoint}")
