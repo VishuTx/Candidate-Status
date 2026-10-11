@@ -4,7 +4,7 @@
 
 ---
 
-## 1. What the Project Does (Plain English)
+## 1. What the Project Does 
 
 Imagine a company attendance system where:
 
