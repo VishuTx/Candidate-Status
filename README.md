@@ -1,26 +1,36 @@
-# Candidate kit
+# Employee Attendance & Analytics API
 
-Read in this order:
+FastAPI and MongoDB backend service providing employee attendance tracking, manual regularization with an immutable audit trail, and analytics aggregation pipelines.
 
-1. `PROBLEM_STATEMENT.docx`: what you are asked to do, how it is evaluated.
-2. `openapi.yaml`: the API contract and the business rules (R1 - R10).
-3. `DATA_MODEL.md`: what is stored in MongoDB, with nine sample documents.
-4. `app/main.py`: the starter. Put **all** your code in this one file. It must start with `uvicorn app.main:app --port 8000`.
-5. `REVIEW.md`, `DECISIONS.md`: templates to fill in.
+## Prerequisites
+* Python 3.11+
+* MongoDB 6.0+ (Tested on MongoDB 8.x; fully compatible with MongoDB 7.0 and Atlas)
 
-`sample_data/` holds the nine sample documents as MongoDB Extended JSON; `sample_seed.py` loads them. The grader's dataset is
-much larger and contains cases they do not show.
-
-## Local setup
+## How to Run
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env            # set MONGO_URI / MONGO_DB (local docker: docker run -p 27017:27017 mongo:7)
-python sample_seed.py
-uvicorn app.main:app --port 8000 --reload
-```
-MongoDB **6.0 or newer** is required (the grader uses 7.0). MongoDB Atlas free tier (M0) works.
+python -m venv .venv
+# On Windows:
+.venv\Scripts\activate
+# On Linux/macOS:
+# source .venv/bin/activate
 
-## Submit
-A public Git repository with `app/main.py`, `requirements.txt`, `REVIEW.md`, `DECISIONS.md` and a short `README.md`.
-No `.env`, no secrets, no Dockerfile.
+pip install -r requirements.txt
+
+# Run the API server (MONGO_URI and MONGO_DB are read from the environment or .env):
+uvicorn app.main:app --port 8000
+```
+
+To load sample data:
+```bash
+python sample_seed.py
+```
+
+## Key Highlights & Design Guarantees
+* **All code lives in `app/main.py`**; boots cleanly with `uvicorn app.main:app --port 8000`.
+* **Idempotent Indexing**: All unique and compound indexes are created automatically at application startup via FastAPI lifespan.
+* **Native Aggregations**: All analytics endpoints (`/analytics/*`) execute purely in MongoDB aggregation pipelines (utilizing `$setWindowFields` for competition ranking and `$densify` for gap filling).
+* **Explain Endpoint**: `GET /admin/explain/{endpoint}` reports execution stats verifying index scans (`IXSCAN`) and absence of collection scans.
+* **Documentation**:
+  - `REVIEW.md`: Starter code defect audit and resolutions.
+  - `DECISIONS.md`: Design rationale for indexing, concurrency, ranking, and scalability.
+  - `detail.md`: Complete architectural guide and workflow breakdown.

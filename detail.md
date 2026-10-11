@@ -259,37 +259,100 @@ stateDiagram-v2
 
 ---
 
-## 5. Verification & Testing
+---
 
-### Test Coverage Matrix:
-| Test Scenario | Tested Endpoint | Expected Behavior | Result |
-| :--- | :--- | :--- | :--- |
-| MongoDB Connectivity Probe | `GET /health` | 200 on active ping, 503 on DB down | **PASSED** |
-| Unique Employee Constraint | `POST /employees` | 201 on create, 409 on duplicate | **PASSED** |
-| Shift Mismatch Validation | `POST /employees` | 422 if `shift_start == shift_end` | **PASSED** |
-| Deterministic Paging & Sort | `GET /employees` | `(page-1)*size` skip, sorted `emp_code ASC` | **PASSED** |
-| Punch-In Overnight Shift | `POST /attendance/punch-in` | Assigns pre-shift-end punches to previous day | **PASSED** |
-| Punch-In Duplicate Guard | `POST /attendance/punch-in` | 409 via `(emp_code, date)` unique index | **PASSED** |
-| Punch-Out Unknown / No Punch-In | `POST /attendance/punch-out` | 404 Not Found | **PASSED** |
-| Punch-Out Math & Overtime | `POST /attendance/punch-out` | 200 with R3 overtime & R4 work hours | **PASSED** |
-| Punch-Out Idempotency Guard | `POST /attendance/punch-out` | 409 on already punched-out record | **PASSED** |
-| Regularization No-Op | `PATCH /attendance/...` | 422 if nothing changes | **PASSED** |
-| Regularization Absent/Leave Conflict | `PATCH /attendance/...` | 422 if punch times supplied | **PASSED** |
-| Regularization Audit Trail | `PATCH /attendance/...` | 200 with before/after diffs in `history` | **PASSED** |
-| Multi-Correction History Appending | `PATCH /attendance/...` | Preserves all previous audit entries | **PASSED** |
+## 5. Phase 4: Native MongoDB Analytics Aggregations
+
+All analytics endpoints are built using **native MongoDB aggregation pipelines** executed directly inside the database engine. No records are loaded into Python memory.
+
+### 1. `GET /analytics/employees/{emp_code}/monthly`
+* **Working Days (R7)**: Monday–Friday calendar days counted from `joined_on` for employees who joined mid-month.
+* **Presence & Leave**:
+  - `present_days`: Evaluated via `$isoDayOfWeek <= 5` (Mon–Fri only). Full day counts as 1.0; `half_day` counts as 0.5.
+  - `leave_days`: Total documents with status `LEAVE`.
+  - `late_count` & `total_late_minutes`: Weekend records still contribute to late totals.
+  - `attendance_pct`: $(present\_days / working\_days) \times 100$ rounded half-up to 2 decimals.
 
 ---
 
-## 6. Next Steps (Upcoming Phases)
+### 2. `GET /analytics/departments/summary`
+* **Zero-Log Headcount Preservation (R9)**:
+  Pipeline roots on `employees` (matching `joined_on <= month_end`) and performs a `$lookup` into `attendance_logs`. Employees with zero logs still contribute 1 to `headcount`.
+* **Metric Roll-ups**:
+  - `present_days`: Mon–Fri presence days summed across all department employees.
+  - `avg_work_hours`: Arithmetic mean over all present records that have a non-null `work_hours`, rounded half-up to 2 decimals (not an average of averages!).
+  - `late_count`, `total_late_minutes`, `leave_count`, `on_duty_count`.
 
-* **Phase 4**:
-  * Build native MongoDB aggregation pipelines:
-    1. `GET /analytics/employees/{emp_code}/monthly` (Mon-Fri working days, joiner adjustments, presence rate).
-    2. `GET /analytics/departments/summary` (cross-collection aggregation preserving zero-log employees in headcount).
-    3. `GET /analytics/leaderboard/late` (standard competition ranking with window functions: 1, 2, 2, 4).
-    4. `GET /analytics/departments/{department}/trend` (MongoDB `$densify` gap filling and 7-day rolling window).
-* **Phase 5**:
-  * Implement `GET /admin/explain/{endpoint}` and verify `IXSCAN` plans without collection scans.
-* **Phase 6 & 7**:
-  * Complete `DECISIONS.md`, finalize `README.md`, and clean workspace for final submission.
+---
+
+### 3. `GET /analytics/leaderboard/late`
+* **Standard Competition Ranking**:
+  Utilizes MongoDB window stage `$setWindowFields` with `$rank` sorted by `total_late_minutes DESC`:
+  ```python
+  {
+      "$setWindowFields": {
+          "sortBy": {"total_late_minutes": -1},
+          "output": {"rank": {"$rank": {}}},
+      }
+  }
+  ```
+  Ties share the same rank and the subsequent rank is skipped (1, 2, 2, 4).
+* **Deterministic Tie-Breaking & Slicing**:
+  Tied rows are secondary-sorted by `emp_code ASC`, and `$limit` is applied strictly **after** ranking.
+
+---
+
+### 4. `GET /analytics/departments/{department}/trend`
+* **Calendar Gap-Filling (`$densify`)**:
+  Guarantees exactly one row per calendar day across `from` to `to` inclusive, even for days with zero logs:
+  ```python
+  {
+      "$densify": {
+          "field": "date_dt",
+          "range": {
+              "step": 1,
+              "unit": "day",
+              "bounds": [from_dt, to_dt_next],
+          },
+      }
+  }
+  ```
+* **Daily Headcount**: Evaluated via subquery `$lookup` into `employees` matching `joined_on <= date`.
+* **Attendance Rate**: `present_count / headcount`, rounded half-up to 4 decimals (R8).
+* **7-Day Rolling Window**:
+  Evaluated via `$setWindowFields` sliding window `documents: [-6, "current"]` over the consecutive densified date stream.
+
+---
+
+## 6. Phase 5: Query Optimization & `/admin/explain/{endpoint}`
+
+* **Readiness & Plan Validation**:
+  `GET /admin/explain/{endpoint}` executes `explain("executionStats")` on the exact query or pipeline used by each endpoint (`attendance_list`, `employee_monthly`, `department_summary`, `late_leaderboard`, `department_trend`).
+* **Indexes Supporting Zero-`COLLSCAN` Execution**:
+  - `employees(emp_code)`: Unique index.
+  - `employees(department, joined_on)`: Compound filter index.
+  - `attendance_logs(emp_code, date)`: Unique compound index.
+  - `attendance_logs(date DESC, emp_code ASC)`: Compound index for sorting & pagination.
+  - `attendance_logs(emp_code, punch_in)`: Compound index for punch-out matching.
+  - `attendance_logs(date, late_minutes)`: Compound index for late leaderboard filtering.
+
+---
+
+## 7. Complete Verification Matrix
+
+| Test Category | Endpoint Tested | Verification Details | Status |
+| :--- | :--- | :--- | :--- |
+| **System Health** | `GET /health` | Pings MongoDB; returns 200 on healthy connection, 503 on database drop | **PASSED** |
+| **Employees CRUD** | `POST /employees` | 201 on creation, 409 on duplicate `emp_code`, 422 on invalid regex or equal shifts | **PASSED** |
+| **Employees List** | `GET /employees` | Filter by department, accurate `(page-1)*size` skip, sorted `emp_code ASC` | **PASSED** |
+| **Punch-In** | `POST /attendance/punch-in` | 404 on missing employee, 409 on duplicate day, overnight shift calendar assignment | **PASSED** |
+| **Punch-Out** | `POST /attendance/punch-out` | 404 on no open punch-in, 409 on already closed, accurate R3 overtime & R4 work hours | **PASSED** |
+| **Attendance List** | `GET /attendance` | Memory-safe cursor pagination, composite sort `date DESC, emp_code ASC`, 422 on date order | **PASSED** |
+| **Regularization** | `PATCH /attendance/...` | 422 on no-op, 422 on absent with punches, 200 with before/after audit diffs in `history` | **PASSED** |
+| **Employee Monthly** | `GET /analytics/employees/...` | Mid-month joiner working days calculation (R7), Mon-Fri presence summing, rate rounding | **PASSED** |
+| **Department Summary**| `GET /analytics/departments/...`| Cross-collection `$lookup`, zero-log employee headcount preservation (R9), average work hours | **PASSED** |
+| **Late Leaderboard** | `GET /analytics/leaderboard/...`| MongoDB window `$rank` (1, 2, 2, 4), tie sorting by `emp_code ASC`, limit post-rank | **PASSED** |
+| **Department Trend** | `GET /analytics/departments/...`| Native `$densify` calendar gap-filling, daily headcount join, 7-day moving average | **PASSED** |
+| **Query Explains** | `GET /admin/explain/...` | All 5 explain endpoints return `executionStats` confirming index scans (`IXSCAN`) | **PASSED** |
+
 
