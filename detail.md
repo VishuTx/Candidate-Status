@@ -360,6 +360,7 @@ curl "http://localhost:8000/admin/explain/attendance_list"
 | Explain endpoint for all 5 queries | `GET /admin/explain/{endpoint}` | PASS |
 | REVIEW.md with 22 defects | Fully documented | PASS |
 | DECISIONS.md with 5 design choices | Fully documented | PASS |
+| API_TEST_INPUTS.md with queries & new data guide | Fully documented | PASS |
 
 ---
 

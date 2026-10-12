@@ -239,13 +239,36 @@ class Status(str, Enum):
 
 
 class EmployeeIn(BaseModel):
-    emp_code: Annotated[str, StringConstraints(pattern=r"^EMP\d{4,6}$")]
-    name: Annotated[str, StringConstraints(min_length=1, max_length=100)]
-    email: Annotated[str, StringConstraints(max_length=120, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
-    department: Annotated[str, StringConstraints(min_length=1, max_length=50)]
-    shift_start: Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")] = "09:30"
-    shift_end: Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")] = "18:30"
-    joined_on: Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")]
+    emp_code: Annotated[str, StringConstraints(pattern=r"^EMP\d{4,6}$")] = Field(
+        description="Unique employee code. Format: EMP followed by 4-6 digits. Sample: EMP0007",
+        examples=["EMP0007"],
+    )
+    name: Annotated[str, StringConstraints(min_length=1, max_length=100)] = Field(
+        description="Employee full name",
+        examples=["Dev Sharma"],
+    )
+    email: Annotated[str, StringConstraints(max_length=120, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")] = Field(
+        description="Employee corporate email address",
+        examples=["dev.sharma@example.com"],
+    )
+    department: Annotated[str, StringConstraints(min_length=1, max_length=50)] = Field(
+        description="Department name. Existing departments: Engineering, Sales, Support",
+        examples=["Engineering"],
+    )
+    shift_start: Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")] = Field(
+        default="09:30",
+        description="Shift start time in HH:MM format",
+        examples=["09:30"],
+    )
+    shift_end: Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")] = Field(
+        default="18:30",
+        description="Shift end time in HH:MM format (must differ from shift_start; <= shift_start for overnight)",
+        examples=["18:30"],
+    )
+    joined_on: Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")] = Field(
+        description="Joining date in YYYY-MM-DD format",
+        examples=["2026-07-01"],
+    )
 
     @model_validator(mode="after")
     def validate_shift_difference(self):
@@ -253,30 +276,128 @@ class EmployeeIn(BaseModel):
             raise ValueError("shift_start must differ from shift_end")
         return self
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "emp_code": "EMP0007",
+                    "name": "Dev Sharma",
+                    "email": "dev.sharma@example.com",
+                    "department": "Engineering",
+                    "shift_start": "09:30",
+                    "shift_end": "18:30",
+                    "joined_on": "2026-07-01",
+                }
+            ]
+        }
+    }
+
 
 class PunchInIn(BaseModel):
-    emp_code: str
-    punched_at: Optional[EpochMillis] = None
-    status: PresenceStatus = PresenceStatus.PRESENT
+    emp_code: str = Field(
+        description="Employee code from sample dataset (EMP0001, EMP0002, EMP0003, EMP0004, EMP0005, EMP0006)",
+        examples=["EMP0001"],
+    )
+    punched_at: Optional[EpochMillis] = Field(
+        default=None,
+        description="Epoch milliseconds timestamp (13 digits). Omit for current server time.",
+        examples=[1783308600000],
+    )
+    status: PresenceStatus = Field(
+        default=PresenceStatus.PRESENT,
+        description="Initial presence status: PRESENT, WFH, or ON_DUTY",
+        examples=["PRESENT"],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "emp_code": "EMP0001",
+                    "punched_at": 1783308600000,
+                    "status": "PRESENT",
+                }
+            ]
+        }
+    }
 
 
 class PunchOutIn(BaseModel):
-    emp_code: str
-    punched_at: Optional[EpochMillis] = None
+    emp_code: str = Field(
+        description="Employee code. Use EMP0006 to test closing an open punch-in from the sample dataset.",
+        examples=["EMP0006"],
+    )
+    punched_at: Optional[EpochMillis] = Field(
+        default=None,
+        description="Epoch milliseconds timestamp. For EMP0006, use 1783344600000 (2026-07-07 19:30 IST) to compute ~9.92 work hours and 60m overtime.",
+        examples=[1783344600000],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "emp_code": "EMP0006",
+                    "punched_at": 1783344600000,
+                }
+            ]
+        }
+    }
 
 
 class RegularizeIn(BaseModel):
-    status: Optional[Status] = None
-    punch_in: Optional[EpochMillis] = None
-    punch_out: Optional[EpochMillis] = None
-    reason: Annotated[str, StringConstraints(min_length=5, max_length=200)]
-    regularized_by: Annotated[str, StringConstraints(min_length=1, max_length=50)]
+    status: Optional[Status] = Field(
+        default=None,
+        description="New attendance status: PRESENT, WFH, ON_DUTY, ABSENT, LEAVE",
+        examples=["WFH"],
+    )
+    punch_in: Optional[EpochMillis] = Field(
+        default=None,
+        description="Updated punch_in timestamp (epoch ms)",
+        examples=[1783310000000],
+    )
+    punch_out: Optional[EpochMillis] = Field(
+        default=None,
+        description="Updated punch_out timestamp (epoch ms)",
+        examples=[1783344000000],
+    )
+    reason: Annotated[str, StringConstraints(min_length=5, max_length=200)] = Field(
+        description="Reason for regularization (min 5 chars)",
+        examples=["Approved remote work arrangement"],
+    )
+    regularized_by: Annotated[str, StringConstraints(min_length=1, max_length=50)] = Field(
+        description="Name or title of approver",
+        examples=["HR Manager"],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "status": "WFH",
+                    "punch_in": 1783310000000,
+                    "punch_out": 1783344000000,
+                    "reason": "Approved remote work arrangement",
+                    "regularized_by": "HR Manager",
+                }
+            ]
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #
 # Endpoints (Part A: Review & Fixes)
 # --------------------------------------------------------------------------- #
-@app.get("/health")
+@app.get(
+    "/health",
+    summary="System Health Check",
+    description="""
+Pings the underlying MongoDB database (or Atlas cluster) using `admin.command('ping')`.
+
+- **Success (200)**: Database is reachable and responsive (`{"status": "ok"}`).
+- **Failure (503)**: Database is unreachable or dropped.
+""",
+)
 def health():
     try:
         client.admin.command("ping")
@@ -285,7 +406,22 @@ def health():
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
-@app.post("/employees", status_code=201)
+@app.post(
+    "/employees",
+    status_code=201,
+    summary="Register Employee",
+    description="""
+Registers a new employee into the system.
+
+### Domain of Fields to Input:
+- **`emp_code`**: Format `^EMP\\d{4,6}$` (e.g. `EMP0007`). Must be unique across the DB.
+- **`name`**: Full name (1-100 characters).
+- **`email`**: Corporate email address.
+- **`department`**: Department name. Existing departments in sample: `Engineering`, `Sales`, `Support`.
+- **`shift_start` / `shift_end`**: HH:MM format (must differ). Set `shift_end <= shift_start` for overnight shifts (e.g. `22:00` - `06:00`).
+- **`joined_on`**: Joining date in `YYYY-MM-DD` format (e.g. `2026-07-01`).
+""",
+)
 def create_employee(body: EmployeeIn):
     now_utc = datetime.now(timezone.utc)
     doc = body.model_dump()
@@ -299,11 +435,26 @@ def create_employee(body: EmployeeIn):
     return doc_to_employee(doc)
 
 
-@app.get("/employees")
+@app.get(
+    "/employees",
+    summary="List Employees",
+    description="""
+Retrieves a paginated list of employees sorted by `emp_code ASC`.
+
+### Sample Values to Select from DB:
+- **`department`**:
+  - `Engineering` &rarr; Retrieves `EMP0001` (Asha Rao), `EMP0002` (Vikram Shah)
+  - `Sales` &rarr; Retrieves `EMP0003` (Neha Iyer), `EMP0004` (Rohit Das)
+  - `Support` &rarr; Retrieves `EMP0005` (Meera Nair - Night shift), `EMP0006` (Karan Bedi)
+  - *Leave blank to list all 6 employees.*
+- **`page`**: 1
+- **`page_size`**: 20 (up to 100)
+""",
+)
 def list_employees(
-    department: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    department: Optional[str] = Query(None, description="Department filter. Sample values: Engineering, Sales, Support", examples=["Engineering"]),
+    page: int = Query(1, ge=1, description="Page number", examples=[1]),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page", examples=[20]),
 ):
     q: dict[str, Any] = {}
     if department:
@@ -321,7 +472,21 @@ def list_employees(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-@app.post("/attendance/punch-in", status_code=201)
+@app.post(
+    "/attendance/punch-in",
+    status_code=201,
+    summary="Record Punch-In",
+    description="""
+Records an employee's punch-in instant. Assigns the calendar date (accounting for overnight shifts) and computes late minutes beyond the strict 10-minute grace period.
+
+### Sample Employees to Select & Test:
+- **`EMP0001`** (Day shift 09:30–18:30): Punch at `1783308600000` (2026-07-08 09:30 IST &rarr; on time, 0 late min).
+- **`EMP0005`** (Overnight shift 22:00–06:00): Punch at `1783281600000` (2026-07-08 02:00 IST &rarr; correctly assigned to previous calendar day `2026-07-07`).
+- **`EMP0003`** (Late test): Punch at `1783311000000` (2026-07-08 10:10 IST &rarr; 40 min late, >10 min grace period).
+- **`status`**: `PRESENT`, `WFH`, `ON_DUTY`
+*(Duplicate punch-in for the same employee and calendar date returns 409 Conflict).*
+""",
+)
 def punch_in(body: PunchInIn):
     emp = db.employees.find_one({"emp_code": body.emp_code})
     if not emp:
@@ -360,14 +525,26 @@ def punch_in(body: PunchInIn):
     return doc_to_attendance_record(doc)
 
 
-@app.get("/attendance")
+@app.get(
+    "/attendance",
+    summary="List Attendance Records",
+    description="""
+Returns paginated attendance records sorted by `date DESC, emp_code ASC`.
+
+### Sample Values to Select from DB:
+- **`emp_code`**: `EMP0001`, `EMP0002`, `EMP0003`, `EMP0004`, `EMP0005`, `EMP0006`
+- **`date_from` / `date_to`**: Sample data spans `2026-07-01` to `2026-07-31`
+- **`status`**: `PRESENT`, `WFH`, `ON_DUTY`, `ABSENT`, `LEAVE`
+- **`page` / `page_size`**: Cursor pagination parameters
+""",
+)
 def list_attendance(
-    emp_code: Optional[str] = None,
-    date_from: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$"),
-    date_to: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$"),
-    status: Optional[Status] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    emp_code: Optional[str] = Query(None, description="Employee code filter. Sample: EMP0001", examples=["EMP0001"]),
+    date_from: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", description="Start date (YYYY-MM-DD)", examples=["2026-07-01"]),
+    date_to: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", description="End date (YYYY-MM-DD)", examples=["2026-07-31"]),
+    status: Optional[Status] = Query(None, description="Status filter: PRESENT, WFH, ON_DUTY, ABSENT, LEAVE", examples=["PRESENT"]),
+    page: int = Query(1, ge=1, description="Page number", examples=[1]),
+    page_size: int = Query(20, ge=1, le=100, description="Records per page", examples=[20]),
 ):
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status_code=422, detail="date_from must not be after date_to")
@@ -400,7 +577,18 @@ def list_attendance(
 # --------------------------------------------------------------------------- #
 # Endpoints (Part B & C: To be implemented in subsequent phases)
 # --------------------------------------------------------------------------- #
-@app.post("/attendance/punch-out")
+@app.post(
+    "/attendance/punch-out",
+    summary="Record Punch-Out",
+    description="""
+Atomically closes the employee's most recent open punch-in record. Computes work hours, overtime minutes (threshold >= 30 min), and half-day flag (< 4.50 hrs).
+
+### Sample Values to Select & Test:
+- **`emp_code`**: `EMP0006` *(Currently has an open punch-in on `2026-07-07` at 09:35 IST with `punch_out: null`)*.
+- **`punched_at`**: `1783344600000` (2026-07-07 19:30 IST &rarr; computes ~9.92 work hours and 60 minutes overtime!).
+- *(Trying to punch out an already closed record like EMP0001 returns 409 Conflict).*
+""",
+)
 def punch_out(body: PunchOutIn):
     emp = db.employees.find_one({"emp_code": body.emp_code})
     if not emp:
@@ -464,10 +652,32 @@ def punch_out(body: PunchOutIn):
     return doc_to_attendance_record(updated_doc)
 
 
-@app.patch("/attendance/{emp_code}/{date}")
+@app.patch(
+    "/attendance/{emp_code}/{date}",
+    summary="Regularize Attendance Record",
+    description="""
+HR administrative correction endpoint. Performs atomic updates with an audit trail recorded in the `history` array.
+
+### Sample Records in DB to Select:
+- **`emp_code`** & **`date`**:
+  - `EMP0001` + `2026-07-06` (PRESENT)
+  - `EMP0003` + `2026-07-06` (Late by 35 min)
+  - `EMP0004` + `2026-07-07` (WFH, 3.5 hrs, half-day)
+  - `EMP0004` + `2026-07-08` (ABSENT)
+  - `EMP0002` + `2026-07-14` (Mid-month joiner record)
+- **Sample Request Body**:
+  ```json
+  {
+    "status": "WFH",
+    "reason": "Approved remote work from home",
+    "regularized_by": "HR Manager"
+  }
+  ```
+""",
+)
 def regularize_attendance(
-    emp_code: str = Path(...),
-    date: str = Path(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$"),
+    emp_code: str = Path(..., description="Employee code from DB. Sample: EMP0001", examples=["EMP0001"]),
+    date: str = Path(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", description="Record date (YYYY-MM-DD). Sample: 2026-07-06", examples=["2026-07-06"]),
     body: RegularizeIn = ...,
 ):
     emp = db.employees.find_one({"emp_code": emp_code})
@@ -626,10 +836,26 @@ def regularize_attendance(
     return doc_to_attendance_record(updated_doc)
 
 
-@app.get("/analytics/employees/{emp_code}/monthly")
+@app.get(
+    "/analytics/employees/{emp_code}/monthly",
+    summary="Employee Monthly Analytics",
+    description="""
+Calculates working days, presence days, leave days, late count, total overtime, and attendance rate for an employee.
+
+### Sample Values to Select from DB:
+- **`emp_code`**:
+  - `EMP0001`: Full month employee (joined 2026-01-05). Full July working days: **23 days**.
+  - `EMP0002`: Mid-month joiner (joined 2026-07-13). Pro-rated working days: **15 days** (Mon-Fri starting from July 13).
+  - `EMP0003`: Late employee. Shows **35 late minutes** and 1 late count in July 2026.
+  - `EMP0004`: Half-day WFH employee (July 7). Presence count: **0.5 days**.
+- **`month`**:
+  - `2026-07`: Populated sample data month.
+  - `2026-06`: Month with zero logs (verifies zero-division protection: returns `0.0%`).
+""",
+)
 def employee_monthly(
-    emp_code: str = Path(...),
-    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    emp_code: str = Path(..., description="Employee code from DB. Sample: EMP0001, EMP0002", examples=["EMP0001"]),
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Target month (YYYY-MM). Sample: 2026-07", examples=["2026-07"]),
 ):
     emp = db.employees.find_one({"emp_code": emp_code})
     if not emp:
@@ -878,10 +1104,25 @@ def build_department_summary_pipeline(month: str, department: Optional[str] = No
     return pipeline
 
 
-@app.get("/analytics/departments/summary")
+@app.get(
+    "/analytics/departments/summary",
+    summary="Department Monthly Summary",
+    description="""
+Aggregates headcount, presence days, average work hours, late counts, and leave counts across departments using native MongoDB `$lookup`.
+
+### Sample Values to Select from DB:
+- **`month`**: `2026-07` (populated sample data month)
+- **`department`**:
+  - `Engineering` &rarr; Headcount: 2 (`EMP0001`, `EMP0002`)
+  - `Sales` &rarr; Headcount: 2 (`EMP0003`, `EMP0004`)
+  - `Support` &rarr; Headcount: 2 (`EMP0005`, `EMP0006`)
+  - *Leave blank to view all departments side by side.*
+*Verifies R9: All employees in department are preserved in headcount even if they have 0 logs in the month.*
+""",
+)
 def department_summary(
-    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
-    department: Optional[str] = None,
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Target month (YYYY-MM). Sample: 2026-07", examples=["2026-07"]),
+    department: Optional[str] = Query(None, description="Department filter. Sample: Engineering, Sales, Support", examples=["Engineering"]),
 ):
     pipeline = build_department_summary_pipeline(month, department)
     results = list(db.employees.aggregate(pipeline))
@@ -968,11 +1209,23 @@ def build_late_leaderboard_pipeline(month: str, limit: int = 10, department: Opt
     return pipeline
 
 
-@app.get("/analytics/leaderboard/late")
+@app.get(
+    "/analytics/leaderboard/late",
+    summary="Late Arrival Leaderboard",
+    description="""
+Ranks employees by total late minutes using MongoDB `$setWindowFields` with `$rank` (1, 2, 2, 4) and deterministic tie-sorting by `emp_code ASC`.
+
+### Sample Values to Select from DB:
+- **`month`**: `2026-07`
+- **`limit`**: `5` (or 10)
+- **`department`**: `Sales` (or leave blank to see company-wide)
+*In the sample dataset, `EMP0003` (Neha Iyer) in Sales has 35 late minutes and holds Rank 1.*
+""",
+)
 def late_leaderboard(
-    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
-    limit: int = Query(10, ge=1, le=50),
-    department: Optional[str] = None,
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="Target month (YYYY-MM). Sample: 2026-07", examples=["2026-07"]),
+    limit: int = Query(10, ge=1, le=50, description="Max ranked items to return", examples=[5]),
+    department: Optional[str] = Query(None, description="Optional department filter. Sample: Sales", examples=["Sales"]),
 ):
     pipeline = build_late_leaderboard_pipeline(month, limit, department)
     results = list(db.attendance_logs.aggregate(pipeline))

@@ -34,3 +34,4 @@ python sample_seed.py
   - `REVIEW.md`: Starter code defect audit and resolutions.
   - `DECISIONS.md`: Design rationale for indexing, concurrency, ranking, and scalability.
   - `detail.md`: Complete architectural guide and workflow breakdown.
+  - `API_TEST_INPUTS.md`: Comprehensive catalog of query/route test inputs and guide for adding new records.
